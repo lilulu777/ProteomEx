@@ -1,0 +1,26 @@
+function ...
+    [measLength_in_preExM_um, ...
+    measLength_NaN_in_preExM_um, ...
+    RMSerror_in_preExM_um] = ...
+    export_measurementError_XY( ...
+    measResults, ...
+    pixelWidthExpanded, ...
+    expFactor)
+
+preExM_pixel_to_um_ratio = pixelWidthExpanded / expFactor;
+
+%%% Assumes that the input images are size standardized into
+%%% the pre-ExM image
+
+xmin = 1;%in pixels
+xmax = size(measResults,1);
+xrange = [xmin:xmax];
+
+notNaNindices = xrange(~isnan(measResults([xmin:xmax],3)));
+measLength_in_preExM_um = notNaNindices * preExM_pixel_to_um_ratio;
+
+NaNindices = xrange(isnan(measResults([xmin:xmax],3)));
+measLength_NaN_in_preExM_um = NaNindices * preExM_pixel_to_um_ratio;
+
+RMSerror_in_preExM_um = ...
+    measResults(notNaNindices,3) * preExM_pixel_to_um_ratio;

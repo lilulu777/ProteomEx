@@ -1,0 +1,1128 @@
+---
+title: "ProteomeEx_code"
+author: "Yan Zhou"
+date: "2022-10-28"
+output: html_document
+---
+```{r import packages & data}
+pacman::p_load(readxl, openxlsx, dplyr,  
+               reshape2, magrittr, tidyverse, Hmisc,
+               ggupset, FactoMineR, limma,
+               factoextra, Rtsne,
+               pheatmap, vioplot, ggrepel,
+               ggpubr, ggsignif, ggridges,
+               RColorBrewer, randomcoloR,
+               gridExtra, ggplotify,UpSetR,
+               circlize, corrplot)
+    
+
+source("datamining_library_ge20200306.R",encoding = 'UTF-8')
+
+
+pm = read_xlsx("ProteomEx_demo_protein_10%_clean.xlsx") %>% data.frame()
+row.names(pm) = pm$prot
+pm = pm[,-1]
+
+sinfo = read.csv("ProteomEx_protMatrix_demoAll_Label_20221028.csv")
+sinfo1 = sinfo[sinfo$SampleID %in% names(pm),]
+
+pm = pm[apply(pm,1,function(x){
+  sum(is.na(x))}<ncol(pm)
+),]
+
+protein_mapping = read.xlsx("protein_mapping.xlsx")
+
+```
+
+```{r tsne - Fig2B}
+nm = names(pm)
+
+# different labels(age)
+nm1 = sinfo1$Age[match(nm,sinfo1$SampleID )]  
+
+# different labels (gene)
+nm2 = sinfo1$Gene[match(nm,sinfo1$SampleID)]  
+
+# label 3 (regions)
+nm3 = sinfo1$Region[match(nm,sinfo1$SampleID)]
+
+# label 4 (gene_regions)
+nm4 = paste0(nm2,"_",nm3)
+
+# label 5 (group)
+nm5 = paste0(nm1,"_",nm2)
+
+df10 <- 2^pm
+
+## Impute NAs with 0.8min
+df10[is.na(df10)] = 0.8 * min(na.omit(df10))
+df10 = log2(df10)
+
+set.seed(20)
+df11.tsne <- Rtsne(t(df10), dims = 2, perplexity = 10, verbose = T , check_duplicates = FALSE)
+
+df.tsne = cbind(df11.tsne$Y,
+                nm1,
+                nm2,
+                nm3,
+                nm4,
+                nm5) %>%
+  data.frame(row.names = nm,
+             stringsAsFactors = F)
+
+names(df.tsne) = c("tsne1",
+                   "tsne2",
+                   "Age",
+                   "Gene",
+                   "Region",
+                   "Gene_region",
+                   "Group")
+
+df.tsne$Group = factor(df.tsne$Group, levels = c("Young_WT", "Young_AD", "Old_WT","Old_AD"))
+df.tsne[,c(1,2)] = apply(df.tsne[,c(1,2)],
+                          2,
+                          as.numeric)
+
+## label 5 - group
+fig_tsne_patient = ggplot(df.tsne,
+                           aes(tsne1,tsne2)) +
+  geom_point(aes(color = Group),
+             size = 5) +
+  scale_color_manual(name = sort("Group"),
+                     values = c("#7570B3",
+                                "#E7298A",
+                                "#1B9E77",
+                               "#D95F02"
+                                )) +
+  labs(title = "tsne") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text = element_text(size = 20,
+                                 color = "black"),
+        axis.title = element_text(size = 14),
+        # axis.title.y = element_text(size = 16,),
+        plot.title = element_text(hjust=0.5,size = 14),
+        legend.title = element_text(size = 14),
+        legend.text = element_text(size = 12))
+ggsave("TSNE_group.pdf",
+       fig_tsne_patient,
+       height = 6,
+       width = 8) 
+
+```
+
+```{r old - AD vs. WT - Fig2C}
+pm_old = pm[, nm1 == "Old"]
+pm_old = pm_old[apply(pm_old,1,function(x){
+  sum(is.na(x))}<ncol(pm_old)
+),]
+
+pm_young = pm[,nm1 == "Young"]
+pm_young = pm_young[apply(pm_young,1,function(x){
+  sum(is.na(x))}<ncol(pm_young)
+),]
+
+nm_old = names(pm_old)
+nm_young = names(pm_young)
+
+#### old group
+
+# label 1 (gene)
+nm_1 = sinfo1$Gene[match(nm_old,sinfo1$SampleID)]  
+
+# label 2 (regions)
+nm_2 = sinfo1$Region[match(nm_old,sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_1
+group_list = factor(group_list, levels = c("WT", "AD"))
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_old, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "Old_ADvsWT_adj.P.Val0.05.csv")
+```
+
+```{r old - V1 - Fig2C}
+### V1
+pm_old_V1 = pm_old[,nm_2 == "V1"]
+pm_old_V1 = pm_old_V1[apply(pm_old_V1,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_V1)
+),]
+
+nm_V1 = sinfo1$Gene[match(names(pm_old_V1), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_V1
+group_list = factor(group_list, levels = c("WT", "AD"))
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old_V1)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+
+fit <- lmFit(pm_old_V1, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "V1_Old_WTvsAD_adj.P.Val0.05.csv")
+
+
+```
+
+```{r old - RH - Fig2C}
+### RH
+pm_old_RH = pm_old[,grepl("RH", nm_2)]
+pm_old_RH = pm_old_RH[apply(pm_old_RH,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_RH)
+),]
+nm_RH = sinfo1$Gene[match(names(pm_old_RH), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_RH
+
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old_RH)
+colnames(design) = levels(factor(group_list, levels = c("WT", "AD")))
+
+contrast.matrix <-
+    makeContrasts(paste0(unique(group_list), collapse = "-"), levels = design)
+
+fit <- lmFit(pm_old_RH, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "RH_Old_WTvsAD_adj.P.Val0.05.csv")
+```
+
+```{r old - MGC - Fig2C}
+### MGC
+pm_old_MGC = pm_old[,nm_2 == "MGC"]
+pm_old_MGC = pm_old_MGC[apply(pm_old_MGC,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_MGC)
+),]
+nm_MGC = sinfo1$Gene[match(names(pm_old_MGC), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- factor(nm_MGC, levels = c("WT", "AD"))
+
+design <- model.matrix( ~ 0 + group_list)
+
+rownames(design) <- names(pm_old_MGC)
+colnames(design) = c("WT", "AD")
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_old_MGC, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "MGC_Old_WTvsAD_adj.P.Val0.05.csv")
+
+```
+
+```{r old - Hippocampus subregions - Fig2C}
+### CA1
+pm_old_CA1 = pm_old[,nm_2 == "CA1"]
+pm_old_CA1 = pm_old_CA1[apply(pm_old_CA1,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_CA1)
+),]
+nm_CA1 = sinfo1$Gene[match(names(pm_old_CA1), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_CA1
+group_list = factor(group_list, levels = c("WT", "AD"))
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old_CA1)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_old_CA1, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "CA1_Old_WTvsAD_adj.P.Val0.05.csv")
+
+
+### CA3
+pm_old_CA3 = pm_old[,nm_2 == "CA3"]
+pm_old_CA3 = pm_old_CA3[apply(pm_old_CA3,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_CA3)
+),]
+nm_CA3 = sinfo1$Gene[match(names(pm_old_CA3), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_CA3
+group_list = factor(group_list, levels = c("WT", "AD"))
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old_CA3)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+
+fit <- lmFit(pm_old_CA3, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#火山�?
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "CA3_Old_WTvsAD_adj.P.Val0.05.csv")
+
+
+### DG 
+pm_old_DG = pm_old[,nm_2 == "DG"]
+pm_old_DG = pm_old_DG[apply(pm_old_DG,1,function(x){
+  sum(is.na(x))}<ncol(pm_old_DG)
+),]
+nm_DG = sinfo1$Gene[match(names(pm_old_DG), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_DG
+group_list = factor(group_list, levels = c("WT", "AD"))
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_old_DG)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_old_DG, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#火山�?
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "DG_Old_WTvsAD_adj.P.Val0.05.csv")
+```
+
+
+```{r young - AD vs. WT - Fig2C}
+# label 1 (gene)
+nm_1 = sinfo1$Gene[match(nm_young,sinfo1$SampleID)]  
+
+# label 2 (regions)
+nm_2 = sinfo1$Region[match(nm_young,sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_1
+group_list = factor(group_list, levels = c("WT", "AD"))
+
+design <- model.matrix( ~ 0 + group_list)
+
+rownames(design) <- names(pm_young)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts(paste0(unique(group_list), collapse = "-"), levels = design)
+
+fit <- lmFit(pm_young, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "Young_WTvsAD_adj.P.Val0.05.csv")
+```
+
+```{r young - V1 heatmap - Fig2C}
+### V1
+pm_young_V1 = pm_young[,nm_2 == "V1"]
+pm_young_V1 = pm_young_V1[apply(pm_young_V1,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_V1)
+),]
+
+nm_V1 = sinfo1$Gene[match(names(pm_young_V1), sinfo1$SampleID)]
+
+
+
+### WT vs. AD
+group_list <- nm_V1
+
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_young_V1)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts(paste0(unique(group_list), collapse = "-"), levels = design)
+
+fit <- lmFit(pm_young_V1, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "V1_young_WTvsAD_adj.P.Val0.05.csv")
+```
+
+```{r young - RH heatmap - Fig2C}
+### RH
+pm_young_RH = pm_young[,grepl("RH", nm_2)]
+pm_young_RH = pm_young_RH[apply(pm_young_RH,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_RH)
+),]
+
+nm_RH = sinfo1$Gene[match(names(pm_young_RH), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_RH
+
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_young_RH)
+colnames(design) = levels(factor(group_list, levels = c("WT", "AD")))
+
+contrast.matrix <-
+    makeContrasts(paste0(unique(group_list), collapse = "-"), levels = design)
+
+fit <- lmFit(pm_young_RH, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "RH_young_WTvsAD_adj.P.Val0.05.csv")
+```
+
+```{r young - MGC heatmap - Fig2C}
+### MGC
+pm_young_MGC = pm_young[,nm_2 == "MGC"]
+pm_young_MGC = pm_young_MGC[apply(pm_young_MGC,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_MGC)
+),]
+
+nm_MGC = sinfo1$Gene[match(names(pm_young_MGC), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- factor(nm_MGC, levels = c("WT", "AD"))
+
+design <- model.matrix( ~ 0 + group_list)
+
+rownames(design) <- names(pm_young_MGC)
+colnames(design) = c("WT", "AD")
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_young_MGC, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "MGC_young_WTvsAD_adj.P.Val0.05.csv")
+``` 
+
+```{r young - Hippocampus subregions - Fig2C}
+### CA1
+pm_young_CA1 = pm_young[,nm_2 == "CA1"]
+pm_young_CA1 = pm_young_CA1[apply(pm_young_CA1,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_CA1)
+),]
+
+nm_CA1 = sinfo1$Gene[match(names(pm_young_CA1), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_CA1
+group_list = factor(group_list, levels = c("WT", "AD"))
+  
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_young_CA1)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts(c("AD-WT"), levels = design)
+
+fit <- lmFit(pm_young_CA1, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "CA1_young_WTvsAD_adj.P.Val0.05.csv")
+
+
+### CA3
+pm_young_CA3 = pm_young[,nm_2 == "CA3"]
+pm_young_CA3 = pm_young_CA3[apply(pm_young_CA3,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_CA3)),]
+
+nm_CA3 = sinfo1$Gene[match(names(pm_young_CA3), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_CA3
+group_list = factor(group_list, levels = c("WT", "AD"))
+
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_young_CA3)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts(paste0(unique(group_list), collapse = "-"), levels = design)
+
+fit <- lmFit(pm_young_CA3, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "CA3_young_WTvsAD_adj.P.Val0.05.csv")
+
+### DG 
+pm_young_DG = pm_young[,nm_2 == "DG"]
+pm_young_DG = pm_young_DG[apply(pm_young_DG,1,function(x){
+  sum(is.na(x))}<ncol(pm_young_DG)),]
+
+nm_DG = sinfo1$Gene[match(names(pm_young_DG), sinfo1$SampleID)]
+
+### WT vs. AD
+group_list <- nm_DG
+group_list = factor(group_list, levels = c("WT", "AD")) 
+design <- model.matrix( ~ 0 + factor(group_list, levels = c("WT", "AD")))
+
+rownames(design) <- names(pm_young_DG)
+colnames(design) = levels(factor(group_list))
+
+contrast.matrix <-
+    makeContrasts("AD-WT", levels = design)
+
+fit <- lmFit(pm_young_DG, design)
+
+fit2 <- contrasts.fit(fit, contrast.matrix)
+fit2 <- eBayes(fit2)
+tempOutput = topTable(fit2,
+                      coef = 1,
+                      n = Inf,
+                      adjust.method = "BH")
+
+#Volcano
+Dat <- tempOutput
+Dat$threshold = factor(ifelse(
+    Dat$adj.P.Val < 0.05 &
+        abs(Dat$logFC) > 1,
+    ifelse(Dat$logFC > 1 , 'Up', 'Down'),
+    '-'
+),
+levels = c('Up', 'Down', '-'))
+
+Dat$Prot <- rownames(Dat)
+
+write.csv(Dat, "DG_young_WTvsAD_adj.P.Val0.05.csv")
+
+```
+
+
+```{r ANOVA between RH subregions for 4 groups- Fig4G}
+### split groups
+sinfo2 = sinfo1[sinfo1$Region %in% c("CA1", "CA3", "DG"),]
+sinfo2$group = paste0(sinfo2$Age,"_",sinfo2$Gene)
+pm1 = pm[,sinfo2$SampleID]
+
+nm = names(pm1)
+nm1 = sinfo2$group 
+
+pm_Y_AD = pm1[,nm1 == "Young_AD"]
+pm_Y_WT = pm1[,nm1 == "Young_WT"]
+pm_O_AD = pm1[,nm1 == "Old_AD"]
+pm_O_WT = pm1[,nm1 == "Old_WT"]
+
+pm_Y_AD = pm_Y_AD[rowSums(is.na(pm_Y_AD)) != ncol(pm_Y_AD), ]
+pm_Y_WT = pm_Y_WT[rowSums(is.na(pm_Y_WT)) != ncol(pm_Y_WT), ]
+pm_O_AD = pm_O_AD[rowSums(is.na(pm_O_AD)) != ncol(pm_O_AD), ]
+pm_O_WT = pm_O_WT[rowSums(is.na(pm_O_WT)) != ncol(pm_O_WT), ]
+
+sinfo_Y_AD = sinfo2[match(names(pm_Y_AD),sinfo2$SampleID), ]
+sinfo_Y_WT = sinfo2[match(names(pm_Y_WT),sinfo2$SampleID), ]
+sinfo_O_AD = sinfo2[match(names(pm_O_AD),sinfo2$SampleID), ]
+sinfo_O_WT = sinfo2[match(names(pm_O_WT),sinfo2$SampleID), ]
+
+
+### ANOVA
+# use log2 matrix
+## Youth_AD
+aov_p = apply(pm_Y_AD,
+              1,
+              function(v) {
+                p = tryCatch(aov(v ~ sinfo_Y_AD$Region) %>%
+                  summary() %>%
+                  .[[1]] %>%
+                  .[["Pr(>F)"]] %>%
+                  .[1] %>%
+                  round(digits = 6),
+                  error = function(x) NA)
+              })
+
+# adjust P value by Benjamini-Hochberg method
+aov_p_adjusted = p.adjust(aov_p, method = "BH")
+prot_aov0.05 = data.frame(row.names = row.names(pm_Y_AD),p_value = aov_p, aov_p_adjusted = aov_p_adjusted)
+
+prot_aov0.05 = prot_aov0.05[which(aov_p_adjusted <= 0.05),]
+prot_aov0.05 = prot_aov0.05[order(prot_aov0.05$aov_p_adjusted),]
+prot_aov0.05$gene = protein_mapping$GeneName[match(row.names(prot_aov0.05), protein_mapping$uniprot)]
+
+write.xlsx(prot_aov0.05,
+           "Y_AD_aovp_adj_0.05_protein_list.xlsx", rowNames = T)
+
+## Youth_WT
+aov_p = apply(pm_Y_WT,
+              1,
+              function(v) {
+                p = tryCatch(aov(v ~ sinfo_Y_WT$Region) %>%
+                  summary() %>%
+                  .[[1]] %>%
+                  .[["Pr(>F)"]] %>%
+                  .[1] %>%
+                  round(digits = 6),
+                  error = function(x) NA)
+              })
+
+# adjust P value by Benjamini-Hochberg method
+aov_p_adjusted = p.adjust(aov_p, method = "BH")
+prot_aov0.05 = data.frame(row.names = row.names(pm_Y_WT),p_value = aov_p, aov_p_adjusted = aov_p_adjusted)
+
+prot_aov0.05 = prot_aov0.05[which(aov_p_adjusted <= 0.05),]
+prot_aov0.05 = prot_aov0.05[order(prot_aov0.05$aov_p_adjusted),]
+prot_aov0.05$gene = protein_mapping$GeneName[match(row.names(prot_aov0.05), protein_mapping$uniprot)]
+
+
+write.xlsx(prot_aov0.05,
+           "Y_WT_aovp_adj_0.05_protein_list.xlsx", rowNames = T)
+
+
+## Old_AD
+aov_p = apply(pm_O_AD,
+              1,
+              function(v) {
+                p = tryCatch(aov(v ~ sinfo_O_AD$Region) %>%
+                  summary() %>%
+                  .[[1]] %>%
+                  .[["Pr(>F)"]] %>%
+                  .[1] %>%
+                  round(digits = 6),
+                  error = function(x) NA)
+              })
+
+# adjust P value by Benjamini-Hochberg method
+aov_p_adjusted = p.adjust(aov_p, method = "BH")
+prot_aov0.05 = data.frame(row.names = row.names(pm_O_AD),p_value = aov_p, aov_p_adjusted = aov_p_adjusted)
+
+# prot_aov0.05 = prot_aov0.05[which(aov_p_adjusted <= 0.05),]
+prot_aov0.05 = prot_aov0.05[order(prot_aov0.05$aov_p_adjusted),]
+prot_aov0.05$gene = protein_mapping$GeneName[match(row.names(prot_aov0.05), protein_mapping$uniprot)]
+write.xlsx(prot_aov0.05,
+           "O_AD_aovp_adj_0.05_protein_list.xlsx", rowNames = T)
+
+
+## Old_WT
+aov_p = apply(pm_O_WT,
+              1,
+              function(v) {
+                p = tryCatch(aov(v ~ sinfo_O_WT$Region) %>%
+                  summary() %>%
+                  .[[1]] %>%
+                  .[["Pr(>F)"]] %>%
+                  .[1] %>%
+                  round(digits = 6),
+                  error = function(x) NA)
+              })
+
+# adjust P value by Benjamini-Hochberg method
+aov_p_adjusted = p.adjust(aov_p, method = "BH")
+prot_aov0.05 = data.frame(row.names = row.names(pm_O_WT),p_value = aov_p, aov_p_adjusted = aov_p_adjusted)
+
+prot_aov0.05 = prot_aov0.05[which(aov_p_adjusted <= 0.05),]
+prot_aov0.05 = prot_aov0.05[order(prot_aov0.05$aov_p_adjusted),]
+prot_aov0.05$gene = protein_mapping$GeneName[match(row.names(prot_aov0.05), protein_mapping$uniprot)]
+
+
+write.xlsx(prot_aov0.05,
+           "O_WT_aovp_adj_0.05_protein_list.xlsx", rowNames = T)
+
+
+```
+
+
+```{r heatmap use ANOVA proteins - Fig4G}
+ANOVA_O_AD = read.xlsx("O_AD_aovp_adj_0.05_protein_list.xlsx",rowNames = T)
+ANOVA_O_WT = read.xlsx("O_WT_aovp_adj_0.05_protein_list.xlsx",rowNames = T)
+ANOVA_Y_AD = read.xlsx("Y_AD_aovp_adj_0.05_protein_list.xlsx",rowNames = T)
+ANOVA_Y_WT = read.xlsx("Y_WT_aovp_adj_0.05_protein_list.xlsx",rowNames = T)
+
+prot_ANOVA = unique(c(row.names(ANOVA_O_AD), row.names(ANOVA_O_WT),
+                    row.names(ANOVA_Y_AD), row.names(ANOVA_Y_WT)))
+
+### Universal proteins among all hippocampus regions
+pm_CA1 = pm[,nm3 == "CA1"]
+pm_CA1 = pm_CA1[rowSums(is.na(pm_CA1)) != ncol(pm_CA1), ]
+
+pm_CA3 = pm[,nm3 == "CA3"]
+pm_CA3 = pm_CA3[rowSums(is.na(pm_CA3)) != ncol(pm_CA3), ]
+
+pm_DG = pm[,nm3 == "DG"]
+pm_DG = pm_DG[rowSums(is.na(pm_DG)) != ncol(pm_DG), ]
+
+
+prot_CA1 = row.names(pm_CA1)
+prot_CA3 = row.names(pm_CA3)
+prot_DG = row.names(pm_DG)
+
+prot_RH = Reduce(intersect, list(prot_CA1,prot_CA3,prot_DG))
+sinfo_RH = sinfo1[sinfo1$Region %in% c("CA1","CA3", "DG"),]
+
+pm_RH = pm[prot_RH,sinfo_RH$SampleID]
+pm_anova = pm_RH[prot_ANOVA,]
+pm_anova = pm_anova[!grepl("NA", row.names(pm_anova)),]
+
+sample_na_rank = apply(pm_anova, 2, function(x){
+  sum(is.na(x))/length(x)
+})
+sample_na_rank = data.frame(na_rate = sample_na_rank) 
+sample_na_rank = rownames_to_column(sample_na_rank, var = "SampleID")
+
+sample_na_rank = sample_na_rank[order(sample_na_rank$na_rate, decreasing = T),]
+sample_na_rank$newID = sinfo_RH$ID[match(sample_na_rank$SampleID, sinfo_RH$SampleID)]
+
+pm_anova = 2^pm_anova
+pm_anova[is.na(pm_anova)] = 0.8 * min(na.omit(pm_anova))
+pm_anova = log2(pm_anova)
+
+
+### heatmap
+df = pm_anova
+id <- match(names(df), sinfo1$SampleID) 
+
+sinfo1$Group = paste0(sinfo1$Age,"_", sinfo1$Gene)
+anncol = data.frame(Type = sinfo1$Group[id],SampleName = names(df))
+
+anncol1 = anncol
+anncol1$Type = factor(anncol1$Type, levels = c("Young_WT", "Young_AD", "Old_WT", "Old_AD"))
+
+anncol1 = anncol1[order(anncol1$Type),]
+anncol2 = data.frame(Group = anncol1$Type, row.names = anncol1$SampleName)
+anncol2$Region = sinfo1$Region[match(row.names(anncol2), sinfo1$SampleID)]
+row.names(anncol2) = sinfo_RH$ID[match(row.names(anncol2), sinfo_RH$SampleID)]
+
+ann_colors <- list(Group=c(Young_WT="#7570B3",Young_AD="#E7298A",
+                           Old_WT = "#1B9E77", Old_AD = "#D95F02"),
+                   Region=c(CA1="#F6CAE5", CA3 = "#96CCCB", DG="#C4A5DE"))
+
+### Z Score normalization
+centermatrix <- scale(t(df))
+testdata <- data.frame(centermatrix)
+testdata = testdata[match(anncol1$SampleName, row.names(testdata)),]
+# names(testdata) <- names(df_filter)
+
+o1 <- (fivenum(unlist(testdata))[4]-fivenum(unlist(testdata))[2])*2+fivenum(unlist(testdata))[4]
+o2 <- fivenum(unlist(testdata))[2]-(fivenum(unlist(testdata))[4]-fivenum(unlist(testdata))[2])*2
+
+testdata[testdata>o1]=o1 %>%as.numeric()
+testdata[testdata<o2]=o2 %>%as.numeric() 
+
+row.names(testdata) = sinfo_RH$ID[match(row.names(testdata), sinfo_RH$SampleID)]
+
+testdata2 <- t(testdata)
+
+pdf("ProteomEx_heatmap_corr_RH_subregions_ANOVA.pdf",
+    height = 6,width = 8)
+pheatmap(cor(testdata2),
+         cellwidth = 4, cellheight = 4,
+         # fontsize_col = 3,
+         color = c(brewer.pal(11,"RdYlBu")[11:7],"azure1",brewer.pal(11,"RdYlBu")[5:1]),
+         annotation_col  = anncol2,
+         annotation_colors = ann_colors,
+         na_col = "#CCCCCC",
+         #scale = "row", #对行数据进行标准化，保留NA，注释于20210305，调�?
+         scale = "none",
+         cluster_rows = T, 
+         cluster_cols = T,
+         clustering_method = "ward.D2",
+         show_rownames = T, 
+         show_colnames = T,
+         fontsize_row = 5,
+         fontsize_col = 5,
+         # cutree_rows = 8,
+         border_color = NA,
+         #filename = "allprotein_heatmap.pdf",       
+         main = "")
+dev.off()
+
+```
+
+
+```{r barplot - sFig5F}
+prot_count= data.frame(Group = c("Young_WT", "Young_AD","Old_WT","Old_AD"), 
+                       "Count of differentially expressed proteins"= c(nrow(ANOVA_Y_WT), nrow(ANOVA_Y_AD),
+                    nrow(ANOVA_O_WT), nrow(ANOVA_O_AD)))
+prot_count$Count.of.differentially.expressed.proteins = as.numeric(prot_count$Count.of.differentially.expressed.proteins)
+prot_count$Group = factor(prot_count$Group, levels = c("Young_WT", "Young_AD","Old_WT","Old_AD"))
+
+
+pdf("barplot_anova_4groups.pdf", width = 8, height = 6)
+ggplot(prot_count, aes(x=Group, y=Count.of.differentially.expressed.proteins, fill=Group)) +
+   geom_bar(stat="identity",show.legend = F)+
+  scale_fill_manual(values=c("#7570B3", "#E7298A", "#1B9E77", "#D95F02"))+
+  geom_text(aes(label=Count.of.differentially.expressed.proteins), position=position_dodge(width=0.9), vjust=-0.25)+
+  ylim(0,45)+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+dev.off()
+
+
+
+```
+
+
+```{r boxplot - sFig5B}
+library(easyGgplot2)
+## boxplot
+df_boxplot = pm[c("P12023", "P49769"),] %>% t() %>% data.frame()
+
+sinfo1$Group = paste0(sinfo1$Age, "_", sinfo1$Gene)
+df_boxplot$Group = sinfo1$Group[match(rownames(df_boxplot),sinfo1$SampleID)]
+df_boxplot$Group = factor(df_boxplot$Group, levels = c("Young_WT", "Young_AD", "Old_WT", "Old_AD"))
+
+ pl = list()
+  n = 1
+  for (prot in c("P12023", "P49769")) {
+    max_n = df_boxplot[,prot] %>%
+      na.omit() %>%
+      max()
+    protname = protein_mapping$GeneName[match(prot, protein_mapping$uniprot)]
+    pl[[n]] = ggplot(df_boxplot,
+         aes_(x = ~Group,
+              y = as.formula(paste0("~",prot)),
+              col = ~Group
+              #add = "jitter"
+         )) +
+    labs(x = protname, y = "Log2(intensity)")+
+      ylim(10, 20)+
+    stat_compare_means(comparisons = list(c(1,2),c(1,3),c(2,4),c(3,4)), 
+                       label = "p.format",
+                       label.y = c(19,18.5,19,18.5))+
+    geom_boxplot(position=position_dodge(),lwd=1) +
+    geom_jitter(alpha = 0.5, position=position_jitter(0.2), size = 1)+
+    scale_color_manual(values=c("#7570B3", "#E7298A", "#1B9E77", "#D95F02"))+
+    guides(fill="none") +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black",size=1),
+          axis.text = element_text(size = 8,
+                                   color = "black"),
+          #axis.text.x = element_blank(),
+          axis.text.x = element_text(size = 8,),
+          axis.title = element_text(size = 8),
+          axis.text.y = element_text(size = 8,),
+          plot.title = element_text(hjust=0.5,size = 8),
+          legend.position = "none"
+          # legend.title = element_text(size = 14)
+          # legend.text = element_text(size = 22)
+    )
+    n = n + 1
+  }
+  
+  pdf( "boxplot_4groups.pdf", width = 8, height = 6)
+  ggplot2.multiplot(plotlist = pl, cols = 2)
+  dev.off()
+
+```
+
+
+```{r boxplot - sFig5C}
+gene = c("Stxbp2", "Apoe", "Clu", "Prr7", "Vamp1")
+protein = protein_mapping$uniprot[match(gene,protein_mapping$GeneName)]
+
+## boxplot
+df_boxplot = pm_old[protein,] %>% t() %>% data.frame()
+
+df_boxplot$region = sinfo1$Region[match(rownames(df_boxplot),sinfo1$SampleID)]
+df_boxplot$gene = sinfo1$Gene[match(rownames(df_boxplot),sinfo1$SampleID)]
+df_boxplot$gene = factor(df_boxplot$gene, levels = c("WT", "AD"))
+df_boxplot$region = factor(df_boxplot$region, levels = c("V1", "CA1", "CA3", "DG", "MGC"))
+
+ pl = list()
+  n = 1
+  for (prot in protein) {
+    max_n = df_boxplot[,prot] %>%
+      na.omit() %>%
+      max()
+    protname = protein_mapping$GeneName[match(prot, protein_mapping$uniprot)]
+    pl[[n]] = ggplot(df_boxplot,
+         aes_(x = ~region,
+              y = as.formula(paste0("~",prot)),
+              col = ~gene
+              #add = "jitter"
+         )) +
+    labs(x = protname, y = "Log2(Protein abundance)")+
+      ylim(10, 20)+
+    geom_boxplot(position=position_dodge(),lwd=1) +
+    geom_jitter(alpha = 0.5,
+                size = 1)+
+    scale_color_manual(values=c("#66CC00", "#3399FF"))+
+    guides(fill="none") +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.line = element_line(colour = "black",size=1),
+          axis.text = element_text(size = 8,
+                                   color = "black"),
+          #axis.text.x = element_blank(),
+          axis.text.x = element_text(size = 8,),
+          axis.title = element_text(size = 8),
+          axis.text.y = element_text(size = 8,),
+          plot.title = element_text(hjust=0.5,size = 8),
+          # legend.position = "none"
+          legend.title = element_text(size = 8),
+          legend.text = element_text(size = 8)
+    )
+    n = n + 1
+  }
+  
+  pdf( "boxplot_regions.pdf", width = 12, height = 6)
+  ggplot2.multiplot(plotlist = pl, cols = 3)
+  dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
