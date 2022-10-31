@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<series name='file builder' target='ABA_Mouse_CCFv3_2017_25um.cutlas' target-resolution='456 528 320'>
+    <slice filename='ADO3 2-1.png' nr='3' width='759' height='456' anchoring='ox=455.62205144017935&amp;oy=194.05561110377312&amp;oz=301.94421478553545&amp;ux=-431.3523654937744&amp;uy=0&amp;uz=37.738437339663506&amp;vx=-25.798100352287292&amp;vy=0&amp;vz=-294.87367248535156'/>
+</series>

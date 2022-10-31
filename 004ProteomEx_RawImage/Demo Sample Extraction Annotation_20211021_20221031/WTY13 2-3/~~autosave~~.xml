@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<series name='file builder' target='ABA_Mouse_CCFv3_2017_25um.cutlas' target-resolution='456 528 320'>
+    <slice filename='WTY13 2-3.png' nr='13' width='740' height='484' anchoring='ox=455.397108503294&amp;oy=204.84135162400003&amp;oz=315.5219636400783&amp;ux=-432.9340842962265&amp;uy=0&amp;uz=7.5568916965276&amp;vx=-5.32298375852406&amp;vy=0&amp;vz=-304.9535697698593'/>
+</series>

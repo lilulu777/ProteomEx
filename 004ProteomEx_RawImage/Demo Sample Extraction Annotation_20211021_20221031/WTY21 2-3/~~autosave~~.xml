@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<series name='fike builder' target='ABA_Mouse_CCFv3_2017_25um.cutlas' target-resolution='456 528 320'>
+    <slice filename='WTY21 2-3.png' nr='21' width='773' height='447' anchoring='ox=441.30708050727833&amp;oy=210.9287996292104&amp;oz=323.29228026390075&amp;ux=-428&amp;uy=0&amp;uz=0&amp;vx=0&amp;vy=0&amp;vz=-311'/>
+</series>

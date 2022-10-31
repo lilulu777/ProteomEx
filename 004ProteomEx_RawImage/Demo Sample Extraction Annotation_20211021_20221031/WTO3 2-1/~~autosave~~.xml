@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<series name='file builder' target='ABA_Mouse_CCFv3_2017_25um.cutlas' target-resolution='456 528 320'>
+    <slice filename='WTO3 2-1.png' nr='3' width='742' height='437' anchoring='ox=443.4603590387851&amp;oy=138.49111307039857&amp;oz=296.78859908133745&amp;ux=-423.85018169879913&amp;uy=23.972593806684017&amp;uz=20.033519342541695&amp;vx=-10.49621095508337&amp;vy=55.52993479371071&amp;vz=-288.5173394680023'/>
+</series>

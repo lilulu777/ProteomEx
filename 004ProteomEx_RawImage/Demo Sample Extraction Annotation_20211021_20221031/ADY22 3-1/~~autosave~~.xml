@@ -1,0 +1,4 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<series name='file builder' target='ABA_Mouse_CCFv3_2017_25um.cutlas' target-resolution='456 528 320'>
+    <slice filename='ADY22 3-1.png' nr='22' width='758' height='454' anchoring='ox=442.95076058125494&amp;oy=205.48560857772839&amp;oz=326.0138211429119&amp;ux=-431&amp;uy=0&amp;uz=0&amp;vx=0&amp;vy=0&amp;vz=-308'/>
+</series>
