@@ -1,3 +1,5 @@
 # ProteomEx
 Spatially Resolved Proteomics via Tissue Expansion
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7265577.svg)](https://doi.org/10.5281/zenodo.7265577)
+
+[![DOI](https://zenodo.org/badge/559337601.svg)](https://zenodo.org/badge/latestdoi/559337601)
+
